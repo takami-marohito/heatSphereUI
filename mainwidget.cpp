@@ -76,7 +76,7 @@ void MainWidget::opendir( std::vector<std::string> filename, int nsteps, int fir
   value1_step = first_step;
   value2_step = first_step;
   total_step = nsteps;
-  th_sei = 1500;
+  th_sei = 5;
 
   printf("start loading %s\n",filename.at(first_step).c_str());
   m_renderingwidget->open(m_filename.at(first_step));
@@ -97,7 +97,7 @@ void MainWidget::opendir( std::vector<std::string> filename, std::vector<std::st
   value1_step = first_step;
   value2_step = first_step;
   total_step = nsteps;
-  th_sei = 1500;
+  th_sei = 5;
 
   printf("start loading %s\n",filename.at(first_step).c_str());
   m_renderingwidget->open(m_filename.at(first_step), m_filename_sei.at(first_step));
@@ -203,15 +203,15 @@ void MainWidget::pressright()
 }
 void MainWidget::pressup()
 {
-  th_sei += 100;
+  th_sei = th_sei/0.7;
   this->change_th_sei(th_sei);
 }
 void MainWidget::pressdown()
 {
-  th_sei -= 100;
+  th_sei = th_sei*0.7;
   if(th_sei < 0){
     printf("the threshold of second invariant is minimum\n");
-    th_sei += 100;
+    th_sei = th_sei/0.7;
   }else{
     this->change_th_sei(th_sei);
   }

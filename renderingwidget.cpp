@@ -1,5 +1,8 @@
 #include "renderingwidget.h"
 
+#include "Q.h"
+#include "Qedge.h"
+
 #include <kvs/qt/Screen>
 #include <kvs/glut/Screen>
 #include <QGridLayout>
@@ -35,7 +38,7 @@
 #include <kvs/PolygonObject>
 
 #include "CalcLengthSecondInvariant.h"
-#include "CalcSecondInvariant.h"
+//#include "CalcSecondInvariant.h"
 #include "CalcGradT.h"
 #include "CalcLengthGradT.h"
 
@@ -52,7 +55,7 @@ namespace
   std::string renderer_name = "Renderer";
   int RenderingWindowX = 800;
   int RenderingWindowY = 800;
-  float th_length_sei = 1500;
+  float th_length_sei = 10;
 }
 
 
@@ -168,17 +171,48 @@ void RenderingWidget::open( std::string filename )
     }
   auto start_time_total = std::chrono::system_clock::now();
   auto start_time_load = std::chrono::system_clock::now();
-  object1 = new kvs::UnstructuredVolumeObject();
-  object1 = new takami::LoadUcd( filename.c_str(), PRISM, 0 );
-  object1->setMinMaxObjectCoords( kvs::Vec3( -30, -30, -30 ), kvs::Vec3( 30, 30, 30 ) );
-  object1->setMinMaxExternalCoords( kvs::Vec3( -30, -30, -30 ), kvs::Vec3( 30, 30, 30 ) );
-  
+
+  kvs::UnstructuredVolumeObject* ucd = new takami::LoadUcd( filename.c_str(), PRISM, 0 );
+  const size_t nnodes = ucd->numberOfNodes();
+  const size_t ncells = ucd->numberOfCells();
+  const kvs::ValueArray<kvs::Real32> coords = ucd->coords();
+  const kvs::ValueArray<kvs::UInt32> connections = ucd->connections();
+  delete ucd;
 
   std::vector<float> vel_u = takami::LoadUcdValue( filename.c_str(), 5);
   std::vector<float> vel_v = takami::LoadUcdValue( filename.c_str(), 6);
   std::vector<float> vel_w = takami::LoadUcdValue( filename.c_str(), 7);
+
+  kvs::ValueArray<kvs::Real32> kvsValuesOfVelocity(vel_u.size() * 3);
+  kvs::Real32* pkvsValuesOfVelocity = kvsValuesOfVelocity.data();
+  for(size_t i=0;i<vel_u.size();i++){
+    *(pkvsValuesOfVelocity++) = vel_u.at(i);
+    *(pkvsValuesOfVelocity++) = vel_v.at(i);
+    *(pkvsValuesOfVelocity++) = vel_w.at(i);
+  }
+
+  kvs::UnstructuredVolumeObject* objectForSei = new kvs::UnstructuredVolumeObject();
+  
+  objectForSei->setCellTypeToPrism();
+  objectForSei->setNumberOfNodes( nnodes );
+  objectForSei->setNumberOfCells( ncells );
+  objectForSei->setVeclen( 3 );
+  objectForSei->setCoords( coords );
+  objectForSei->setConnections( connections );
+  objectForSei->setValues(kvs::AnyValueArray( kvsValuesOfVelocity ) );
+
+  //objectForSei->setMinMaxObjectCoords( kvs::Vec3( -30, -30, -30 ), kvs::Vec3( 30, 30, 30 ) );
+  //objectForSei->setMinMaxExternalCoords( kvs::Vec3( -30, -30, -30 ), kvs::Vec3( 30, 30, 30 ) );
+
+  object1 = new local::Q( objectForSei );
+
+  std::vector<float> SecondInvariant(object1->numberOfNodes(),0);
+
+  const float* buf = static_cast<const float*>(object1->values().data());
+  for(unsigned int i=0;i<object1->numberOfNodes();i++){
+    SecondInvariant.at(i) = buf[i];
+  }
   std::vector<float> temperature = takami::LoadUcdValue( filename.c_str(), 3);
-  std::vector<float> SecondInvariant = CalcSecondInvariant_Prism(object1, vel_u, vel_v, vel_w);
 
   std::vector<float> GradT = CalcAbsGradT(object1, temperature);
 
@@ -235,8 +269,8 @@ void RenderingWidget::open( std::string filename )
   histogramdata2.value.resize(object1->numberOfNodes());
   std::copy(datastruct1.value.begin(), datastruct1.value.end(), histogramdata1.value.begin());
   std::copy(datastruct2.value.begin(), datastruct2.value.end(), histogramdata2.value.begin());
-  histogramdata1.name = "SecondInvariant";
-  histogramdata2.name = "GradT";
+  histogramdata1.name = "LengthSecondInvariant";
+  histogramdata2.name = "LengthGradT";
 
   kvs::ValueArray<kvs::UInt32> kvsConnection(&surface_polygon_connection.at(0), surface_polygon_connection.size() );
   /*
@@ -657,7 +691,6 @@ void RenderingWidget::CreateHistogram(std::vector<float> &value1, std::vector<fl
       histogram.at(x+y*256) = 0;
     }
   }
-
   histogramForUpdate.resize(256*256);
 
   for(long int i=0;i<index_matrix.size();i++){
@@ -675,7 +708,7 @@ void RenderingWidget::CreateHistogram(std::vector<float> &value1, std::vector<fl
       histogram.at(i) = log(histogram.at(i))+1;
     }
   }
-  
+
   //端のところをなくしてもっと特徴が出やすくする
 
   for(long int i=0;i<256;i++){
