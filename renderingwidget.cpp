@@ -1,7 +1,7 @@
 #include "renderingwidget.h"
 
 #include "Q.h"
-#include "Qedge.h"
+//#include "Qedge.h"
 
 #include <kvs/qt/Screen>
 #include <kvs/glut/Screen>
@@ -38,10 +38,9 @@
 #include <kvs/PolygonObject>
 
 #include "CalcLengthSecondInvariant.h"
-//#include "CalcSecondInvariant.h"
 #include "CalcGradT.h"
 #include "CalcLengthGradT.h"
-
+#include "GradTzdir.h"
 
 #define TETRA 4
 #define PRISM 6
@@ -171,24 +170,29 @@ void RenderingWidget::open( std::string filename )
     }
   auto start_time_total = std::chrono::system_clock::now();
   auto start_time_load = std::chrono::system_clock::now();
-
-  kvs::UnstructuredVolumeObject* ucd = new takami::LoadUcd( filename.c_str(), PRISM, 0 );
+  
+  kvs::UnstructuredVolumeObject* ucd = new takami::LoadUcd( filename.c_str(), PRISM );
+  
   const size_t nnodes = ucd->numberOfNodes();
   const size_t ncells = ucd->numberOfCells();
   const kvs::ValueArray<kvs::Real32> coords = ucd->coords();
   const kvs::ValueArray<kvs::UInt32> connections = ucd->connections();
   delete ucd;
+  
+  kvs::UnstructuredVolumeObject* vel_u = new takami::LoadUcd( filename.c_str(), PRISM, 5);
+  kvs::UnstructuredVolumeObject* vel_v = new takami::LoadUcd( filename.c_str(), PRISM, 6);
+  kvs::UnstructuredVolumeObject* vel_w = new takami::LoadUcd( filename.c_str(), PRISM, 7);
 
-  std::vector<float> vel_u = takami::LoadUcdValue( filename.c_str(), 5);
-  std::vector<float> vel_v = takami::LoadUcdValue( filename.c_str(), 6);
-  std::vector<float> vel_w = takami::LoadUcdValue( filename.c_str(), 7);
-
-  kvs::ValueArray<kvs::Real32> kvsValuesOfVelocity(vel_u.size() * 3);
+  const float *buf_u = static_cast<const float*>(vel_u->values().data());
+  const float *buf_v = static_cast<const float*>(vel_v->values().data());
+  const float *buf_w = static_cast<const float*>(vel_w->values().data());
+  
+  kvs::ValueArray<kvs::Real32> kvsValuesOfVelocity(vel_u->numberOfNodes() * 3);
   kvs::Real32* pkvsValuesOfVelocity = kvsValuesOfVelocity.data();
-  for(size_t i=0;i<vel_u.size();i++){
-    *(pkvsValuesOfVelocity++) = vel_u.at(i);
-    *(pkvsValuesOfVelocity++) = vel_v.at(i);
-    *(pkvsValuesOfVelocity++) = vel_w.at(i);
+  for(size_t i=0;i<vel_u->numberOfNodes();i++){
+    *(pkvsValuesOfVelocity++) = buf_u[i];
+    *(pkvsValuesOfVelocity++) = buf_v[i];
+    *(pkvsValuesOfVelocity++) = buf_w[i];
   }
 
   kvs::UnstructuredVolumeObject* objectForSei = new kvs::UnstructuredVolumeObject();
@@ -212,9 +216,9 @@ void RenderingWidget::open( std::string filename )
   for(unsigned int i=0;i<object1->numberOfNodes();i++){
     SecondInvariant.at(i) = buf[i];
   }
-  std::vector<float> temperature = takami::LoadUcdValue( filename.c_str(), 3);
+  kvs::UnstructuredVolumeObject* temperature = new takami::LoadUcd(filename.c_str(), PRISM, 3);
 
-  std::vector<float> GradT = CalcAbsGradT(object1, temperature);
+  kvs::UnstructuredVolumeObject* GradT = new local::GradTzdir( temperature );
 
   m_SecondInvariant.resize(SecondInvariant.size(),0);
   std::copy(SecondInvariant.begin(), SecondInvariant.end(), m_SecondInvariant.begin());
@@ -254,16 +258,16 @@ void RenderingWidget::open( std::string filename )
   datastruct1.value = CalcLengthSecondInvariant(object1, surface_node, SecondInvariant, th_length_sei);
   datastruct1.name = "Length Second Invariant";
 
-  /*
-  kvs::ValueArray<kvs::Real32> value2(&GradT.at(0), GradT.size() );
-  object1->setValues( value2 );
-  object1->updateMinMaxValues();
-  */
+  const float* buf_gradT = static_cast<const float*>(GradT->values().data());
+  std::vector<float> vector_gradT(object1->numberOfNodes());
+  for(unsigned int i=0;i<object1->numberOfNodes();i++){
+    vector_gradT.at(i) = buf_gradT[i];
+  }
+
   datastruct2.value.resize(object1->numberOfNodes());
-  datastruct2.value = CalcLengthGradT(object1, surface_node, GradT);
+  datastruct2.value = CalcLengthGradT(object1, surface_node, vector_gradT);
   //datastruct2.value = CalcAbsGradT(object1, temperature);
   datastruct2.name = "Length GradT";
-
 
   histogramdata1.value.resize(object1->numberOfNodes());
   histogramdata2.value.resize(object1->numberOfNodes());
@@ -409,7 +413,7 @@ void RenderingWidget::open( std::string filename )
   //m_screen->scene()->camera()->setPosition(kvs::Vector3f(4,-4,4),kvs::Vector3f(-1,1,-1));
   //m_screen->scene()->light()->setPosition(kvs::Vector3f(6,-6,6));
   compositor = new kvs::StochasticRenderingCompositor( m_screen->scene() );
-  compositor->setRepetitionLevel( 20 );
+  compositor->setRepetitionLevel( 5 );
   compositor->enableLODControl();
   compositor->enableRefinement();
   m_screen->setEvent( compositor );
